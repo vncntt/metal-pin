@@ -22,8 +22,8 @@ let firstUpdateAttempt = true;
 console.log("Transformers available:", typeof pipeline !== 'undefined');
 
 // Grid settings
-const gridSize = 40;  // number of pins in each row/column
-const spacing = 0.8;  // space between pins
+const gridSize = 80;  // number of pins in each row/column
+const spacing = 0.3;  // space between pins
 const pinRadius = 0.1;
 const pinHeight = 1.0;
 
@@ -128,6 +128,7 @@ async function setupWebcam() {
 }
 
 async function testDepthEstimation() {
+    const totalStart = performance.now();
     console.log("Starting depth estimation test...");
     const startTime = performance.now();
     
@@ -137,12 +138,14 @@ async function testDepthEstimation() {
             const frameStart = performance.now();
             frameCtx.drawImage(video, 0, 0, frameCanvas.width, frameCanvas.height);
             const imageData = frameCtx.getImageData(0, 0, frameCanvas.width, frameCanvas.height);
-            console.log("Frame capture time:", performance.now() - frameStart, "ms");
+            const frameEnd = performance.now();
+            console.log("Frame capture time:", frameEnd - frameStart, "ms");
             
             // Process through ONNX
             const preprocessStart = performance.now();
             const preprocessedData = preprocess(imageData, frameCanvas.width, frameCanvas.height);
-            console.log("Preprocessing time:", performance.now() - preprocessStart, "ms");
+            const preprocessEnd = performance.now();
+            console.log("Preprocessing time:", preprocessEnd - preprocessStart, "ms");
             
             const inferenceStart = performance.now();
             const input = new ort.Tensor(
@@ -150,19 +153,28 @@ async function testDepthEstimation() {
                 [1, 3, frameCanvas.width, frameCanvas.height]
             );
             const result = await ortSession.run({ image: input });
-            console.log("ONNX inference time:", performance.now() - inferenceStart, "ms");
+            const inferenceEnd = performance.now();
+            console.log("ONNX inference time:", inferenceEnd - inferenceStart, "ms");
             
             // Postprocess and display
             const postprocessStart = performance.now();
             const depthImageData = postprocess(result.depth);
+            const postprocessEnd = performance.now();
             depthCtx.putImageData(depthImageData, 0, 0);
-            console.log("Postprocessing time:", performance.now() - postprocessStart, "ms");
+            console.log("Postprocessing time:", postprocessEnd - postprocessStart, "ms");
             
             // After putting depth data
             console.log("Depth data written to canvas");
             depthDataReceived = true;  // Set flag when we have depth data
             
             console.log("Total processing time:", performance.now() - startTime, "ms");
+            console.log({
+                frameTime: frameEnd - frameStart,
+                preprocessTime: preprocessEnd - preprocessStart,
+                inferenceTime: inferenceEnd - inferenceStart,
+                postprocessTime: postprocessEnd - postprocessStart,
+                totalTime: performance.now() - totalStart
+            });
             return true;
         }
     } catch (error) {
@@ -188,6 +200,33 @@ function setupCanvases() {
     document.getElementById('depth-view').appendChild(depthCanvas);
 }
 
+// Add this function to handle continuous capture
+async function startDepthCapture() {
+    console.log("Starting continuous depth capture...");
+    
+    setInterval(async () => {
+        // Skip if we're still processing the last frame
+        if (isProcessing) {
+            console.log("Still processing previous frame, skipping...");
+            return;
+        }
+        
+        isProcessing = true;
+        depthProcessed = false;  // Reset flag to allow new pin updates
+        console.log("Capturing new frame...");
+        
+        try {
+            await testDepthEstimation();
+        } catch (error) {
+            console.error("Error in depth capture:", error);
+        } finally {
+            isProcessing = false;
+        }
+        
+    }, 1000);  // Run every 1.5 seconds
+}
+
+// Update init() to use continuous capture
 async function init() {
     console.log("Testing ONNX availability:", typeof ort !== 'undefined');
     
@@ -204,19 +243,8 @@ async function init() {
     await setupWebcam();
     setupCanvases();
     
-    // Just run one test after webcam is ready
-    setTimeout(async () => {
-        console.log("Starting single frame capture...");
-        const testResult = await testDepthEstimation();
-        console.log("Depth estimation complete, result:", testResult);
-        
-        // Stop the webcam after capture
-        const stream = video.srcObject;
-        const tracks = stream.getTracks();
-        tracks.forEach(track => track.stop());
-        console.log("Webcam stopped");
-        
-    }, 2000);
+    // Start continuous capture instead of single frame
+    startDepthCapture();
     
     // Setup scene
     scene = new THREE.Scene();
@@ -267,7 +295,7 @@ async function init() {
     // Position camera
     camera.position.x = 15;
     camera.position.y = 15;
-    camera.position.z = 15;
+    camera.position.z = 20;
     camera.lookAt(0, 0, 0);
 
     isSceneReady = true;  // Set flag when everything is ready
@@ -372,6 +400,16 @@ function animate() {
     renderer.render(scene, camera);
 }
 
+const webglOptions = {
+    executionProviders: ['webgl'],
+    graphOptimizationLevel: 'all',
+    webgl: {
+        pack: true,
+        async: true,
+        optimizationFlags: 0,
+        enablePrecision: false  // Might be faster with lower precision
+    }
+};
 
 console.log("About to call init");
 init().then(() => {
