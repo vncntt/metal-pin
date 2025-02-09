@@ -20,8 +20,6 @@ const outputCanvas = document.getElementById("output-canvas");
 const video = document.getElementById("video");
 const sizeSlider = document.getElementById("size");
 const sizeLabel = document.getElementById("size-value");
-const scaleSlider = document.getElementById("scale");
-const scaleLabel = document.getElementById("scale-value");
 
 function setStreamSize(width, height) {
   video.width = outputCanvas.width = canvas.width = Math.round(width);
@@ -58,13 +56,7 @@ sizeSlider.addEventListener("input", () => {
 });
 sizeSlider.disabled = false;
 
-let scale = 0.4;
-scaleSlider.addEventListener("input", () => {
-  scale = Number(scaleSlider.value);
-  setStreamSize(video.videoWidth * scale, video.videoHeight * scale);
-  scaleLabel.textContent = scale;
-});
-scaleSlider.disabled = false;
+const scale = 1.0;
 
 status.textContent = "Ready";
 
